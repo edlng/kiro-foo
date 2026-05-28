@@ -2,7 +2,10 @@
 # Metrics: accuracy, cost, cost-accuracy ratio, scoring rubrics, completeness
 
 prompts:
-  - file://prompts/skill_eval.txt
+  - id: file://prompts/skill_eval.txt
+    label: general_prompt
+  - id: file://prompts/code_review.txt
+    label: code_review_prompt
 
 providers:
   - id: 'exec: bash providers/claude_code.sh'
@@ -14,6 +17,7 @@ providers:
 defaultTest:
   options:
     provider: 'exec: bash providers/grader.sh'  # grading provider for model-graded assertions
+    rubricPrompt: file://graders/judge-prompt.txt
   assert:
     # Latency gate — fail if a single call exceeds 30s
     - type: latency
@@ -23,6 +27,7 @@ defaultTest:
 
     # Rubric: overall quality judged by LLM
     - type: llm-rubric
+      threshold: 0.7
       value: |
         The response must:
         1. Directly address the task given (even if the task is trivial)
@@ -45,11 +50,11 @@ tests:
       task: 'What is the capital of France?'
       context: 'geography'
     assert:
-      - type: contains
-        value: 'Paris'
+      - type: factuality
+        value: 'Paris is the capital of France'
         metric: accuracy
         weight: 3
-      - type: model-graded-closedqa
+      - type: factuality
         value: 'The answer correctly states that Paris is the capital of France'
         metric: accuracy_graded
         weight: 2
@@ -68,6 +73,7 @@ tests:
         metric: completeness
         weight: 3
       - type: llm-rubric
+        threshold: 0.7
         value: |
           The response must cover ALL three branches (legislative, executive, judicial)
           with a brief but accurate description of each branch's role.
@@ -82,6 +88,7 @@ tests:
       context: 'science'
     assert:
       - type: llm-rubric
+        threshold: 0.7
         value: |
           Score based on:
           - Mentions Rayleigh scattering or light scattering (required)
@@ -106,8 +113,8 @@ tests:
       task: 'Say hello in French.'
       context: 'translation'
     assert:
-      - type: icontains
-        value: 'bonjour'
+      - type: factuality
+        value: 'Bonjour is hello in French'
         metric: accuracy
         weight: 2
       - type: latency
@@ -126,7 +133,7 @@ tests:
       # Override default rubric — this task is too simple for the generic rubric
       rubricPrompt: 'The response correctly says hello in French (e.g. Bonjour). It does not need to be a full sentence.'
 
-  # --- Test 5: Complex completeness + accuracy ---
+  # --- Test 5: Structured output — JSON with required fields ---
   - description: 'Structured output — JSON with required fields'
     vars:
       task: 'Return a JSON object with keys "name", "population", and "continent" for Tokyo. Output only the raw JSON, no markdown fences.'
@@ -156,13 +163,15 @@ tests:
           }
         metric: completeness
         weight: 3
-      - type: model-graded-closedqa
+      - type: factuality
         value: 'The output contains accurate information about Tokyo (population ~14M, continent Asia)'
         metric: accuracy_graded
         weight: 2
 
-  # --- Test 6: Multi-discipline code review — SQL injection detection ---
+  # --- Test 6: SQL injection detection ---
   - description: 'Code review — catches SQL injection'
+    options:
+      prompts: [file://prompts/code_review.txt]
     vars:
       task: |
         Review this code for issues:
@@ -174,19 +183,21 @@ tests:
         });
         ```
       context: 'code_review'
+      grading_notes: 'Focus on security vulnerabilities, especially SQL injection'
     assert:
       - type: icontains
         value: 'injection'
         metric: accuracy
         weight: 3
       - type: llm-rubric
+        threshold: 0.8
         value: |
           The review must:
           1. Identify the SQL injection vulnerability specifically (not just generic "security issue")
           2. Point to the string interpolation of user input into the query
           3. Suggest parameterized queries or prepared statements as the fix
           4. Not report false positives unrelated to the actual code
-        metric: rubric_quality
+        metric: security_detection
         weight: 3
       - type: javascript
         value: |
@@ -198,8 +209,10 @@ tests:
         metric: completeness
         weight: 2
 
-  # --- Test 7: Multi-discipline code review — correctness bug ---
+  # --- Test 7: Off-by-one bug detection ---
   - description: 'Code review — catches off-by-one / correctness bug'
+    options:
+      prompts: [file://prompts/code_review.txt]
     vars:
       task: |
         Review this code for issues:
@@ -211,16 +224,15 @@ tests:
             return result
         ```
       context: 'code_review'
+      grading_notes: 'Look for correctness issues and boundary conditions'
     assert:
-      - type: llm-rubric
+      - type: g-eval
+        threshold: 0.8
         value: |
-          The review must:
-          1. Identify the off-by-one error (range goes to len(items) + 1, causing IndexError)
-          2. Explain WHY it fails (accessing items[len(items)] which is out of bounds)
-          3. Suggest a correct fix (e.g., items[-n:] or range(len(items) - n, len(items)))
-          4. Not hallucinate issues that don't exist in this code
-          Bonus (not required): providing a specific input that triggers the bug.
-        metric: rubric_quality
+          Identify the off-by-one error (range goes to len(items) + 1, causing IndexError)
+          Explain WHY it fails (accessing items[len(items)] which is out of bounds)
+          Suggest a correct fix (e.g., items[-n:] or range(len(items) - n, len(items)))
+        metric: correctness_detection
         weight: 3
       - type: javascript
         value: |
@@ -232,8 +244,10 @@ tests:
         metric: completeness
         weight: 2
 
-  # --- Test 8: Multi-discipline code review — rubric self-challenge (no false positives) ---
+  # --- Test 8: Clean code review (no false positives) ---
   - description: 'Code review — does not hallucinate issues in clean code'
+    options:
+      prompts: [file://prompts/code_review.txt]
     vars:
       task: |
         Review this code for issues:
@@ -250,8 +264,10 @@ tests:
         }
         ```
       context: 'code_review'
+      grading_notes: 'This is well-written code - avoid false positives'
     assert:
       - type: llm-rubric
+        threshold: 0.7
         value: |
           This code is well-written with proper input validation, URL encoding, and error handling.
           The review should:
@@ -260,7 +276,7 @@ tests:
           3. Acknowledge the code is largely correct
           4. At most suggest minor improvements (e.g., type narrowing on response.json())
           A review that invents critical/high issues for this code is WRONG.
-        metric: rubric_quality
+        metric: false_positive_avoidance
         weight: 3
       - type: javascript
         value: |
@@ -273,8 +289,10 @@ tests:
         metric: accuracy
         weight: 3
 
-  # --- Test 9: Multi-discipline code review — multi-discipline coverage ---
+  # --- Test 9: Multi-discipline coverage ---
   - description: 'Code review — covers multiple disciplines'
+    options:
+      prompts: [file://prompts/code_review.txt]
     vars:
       task: |
         Review this code for issues:
@@ -290,18 +308,18 @@ tests:
         });
         ```
       context: 'code_review'
+      grading_notes: 'Look for issues across security, correctness, and design'
     assert:
-      - type: llm-rubric
+      - type: g-eval
+        threshold: 0.8
         value: |
-          This code has issues across multiple disciplines. The review must identify AT LEAST 3 of these:
+          This code has issues across multiple disciplines. Identify AT LEAST 3 of these:
           1. SECURITY: SQL injection via string interpolation of from/to/amount
           2. CORRECTNESS: No transaction — transfer is not atomic (race condition)
           3. CORRECTNESS: No input validation on amount (could be negative, NaN, etc.)
           4. CORRECTNESS: Always returns success even if balance check fails
           5. DESIGN: No error handling — if any query fails, no rollback
-          6. TESTING: No indication of test coverage for edge cases
-          The review should demonstrate multi-discipline thinking, not just one category.
-        metric: rubric_quality
+        metric: multi_discipline_coverage
         weight: 3
       - type: javascript
         value: |
@@ -315,6 +333,17 @@ tests:
           return { pass: disciplines >= 3, score, reason: `Disciplines covered: ${disciplines}/4 (security:${security}, atomicity:${atomicity}, validation:${validation}, errors:${errorHandling})` };
         metric: completeness
         weight: 3
+
+  # --- Test 10: Select-best comparison ---
+  - description: 'Select best response from multiple providers'
+    vars:
+      task: 'Explain the difference between async/await and Promises in JavaScript'
+      context: 'programming'
+    assert:
+      - type: select-best
+        value: 'Which response is more accurate, clear, and concise?'
+        metric: best_response
+        weight: 1
 
 # Assertion scoring override: custom function that factors in cost-accuracy ratio
 assertScoringFunction: file://scoring.js

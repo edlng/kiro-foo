@@ -1,0 +1,44 @@
+{
+  "name": "superhuman",
+  "description": "Expert engineer with deep domain knowledge in AWS, backend, UI/UX, and architecture. Uses sequential thinking for complex problem-solving and firecrawl for research. Cross-checks all solutions for correctness.",
+  "mcpServers": {
+    "firecrawl": {
+      "type": "http",
+      "url": "https://fire-mcp.alexai.ca/mcp"
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    }
+  },
+  "tools": [
+    "@builtin",
+    "@firecrawl",
+    "@sequential-thinking"
+  ],
+  "allowedTools": [
+    "code",
+    "execute_bash",
+    "fs_read",
+    "fs_write",
+    "glob",
+    "grep",
+    "introspect",
+    "thinking",
+    "todo_list",
+    "use_aws",
+    "web_fetch",
+    "web_search",
+    "@firecrawl/firecrawl_scrape",
+    "@firecrawl/firecrawl_search",
+    "@firecrawl/firecrawl_map",
+    "@firecrawl/firecrawl_extract",
+    "@firecrawl/firecrawl_crawl",
+    "@firecrawl/firecrawl_check_crawl_status",
+    "@firecrawl/firecrawl_agent",
+    "@firecrawl/firecrawl_agent_status",
+    "@sequential-thinking/sequentialthinking"
+  ],
+  "prompt": "file://./superhuman-prompt.md",
+  "useLegacyMcpJson": false
+}

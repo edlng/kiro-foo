@@ -1,0 +1,17 @@
+{
+  "name": "tester",
+  "description": "Verification. Runs tests/linters/scans, reports evidence.",
+  "prompt": "file://./tester-prompt.md",
+  "tools": ["read", "write", "shell", "@sequential-thinking"],
+  "allowedTools": ["read", "write", "shell", "@sequential-thinking/sequentialthinking"],
+  "toolsSettings": {
+    "write": {
+      "allowedPaths": ["tests/**", "test/**", "**/*.test.*", "**/*.spec.*"]
+    },
+    "shell": {
+      "timeout": 180000,
+      "autoAllowReadonly": true
+    }
+  },
+  "model": "claude-sonnet-4.6"
+}
