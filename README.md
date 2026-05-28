@@ -20,9 +20,10 @@ kiro --version     # Kiro CLI
 ## Run Evaluations
 
 ```bash
-npm run eval          # Run all test cases
-npm run eval:view     # Open results in browser UI
-npm run eval:cache-clear  # Clear cached responses
+./run-eval.sh          # Clear state + run all tests (recommended)
+npm run eval           # Run all test cases (may fail on stale DB)
+npm run eval:view      # Open results in browser UI
+npm run eval:reset     # Nuke promptfoo state (fixes DB errors)
 ```
 
 ## Evaluation Dimensions

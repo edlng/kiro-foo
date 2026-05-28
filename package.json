@@ -6,13 +6,14 @@
   "scripts": {
     "eval": "promptfoo eval",
     "eval:view": "promptfoo view",
-    "eval:cache-clear": "promptfoo cache clear"
+    "eval:cache-clear": "promptfoo cache clear",
+    "eval:reset": "rm -rf ~/.promptfoo && echo 'Reset complete. Run: npm run eval'"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "promptfoo": "^0.107.2"
+    "promptfoo": "^0.121.12"
   }
 }

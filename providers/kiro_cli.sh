@@ -5,4 +5,5 @@ set -euo pipefail
 
 PROMPT="$1"
 
-kiro-cli chat --no-interactive "$PROMPT"
+# Strip leading "> " prefix that kiro-cli adds to output
+kiro-cli chat --no-interactive "$PROMPT" | sed 's/^> //'

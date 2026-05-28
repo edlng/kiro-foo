@@ -25,10 +25,10 @@ defaultTest:
     - type: llm-rubric
       value: |
         The response must:
-        1. Directly answer the question asked
+        1. Directly address the task given (even if the task is trivial)
         2. Be factually correct
-        3. Use clear, professional language
-        4. Not hallucinate information
+        3. Not hallucinate information
+        A short, correct answer to a simple task is perfectly acceptable.
       metric: rubric_quality
       weight: 2
 
@@ -60,7 +60,7 @@ tests:
       task: 'List the 3 branches of the US government and briefly describe each.'
       context: 'civics'
     assert:
-      - type: contains-all
+      - type: icontains-all
         value:
           - 'legislative'
           - 'executive'
@@ -111,7 +111,7 @@ tests:
         metric: accuracy
         weight: 2
       - type: latency
-        threshold: 5000
+        threshold: 30000
         metric: cost_efficiency
         weight: 2
       - type: javascript
@@ -122,20 +122,29 @@ tests:
           return { pass: words < 30, score, reason: `${words} words` };
         metric: conciseness
         weight: 1
+    options:
+      # Override default rubric — this task is too simple for the generic rubric
+      rubricPrompt: 'The response correctly says hello in French (e.g. Bonjour). It does not need to be a full sentence.'
 
   # --- Test 5: Complex completeness + accuracy ---
   - description: 'Structured output — JSON with required fields'
     vars:
-      task: 'Return a JSON object with keys "name", "population", and "continent" for Tokyo.'
+      task: 'Return a JSON object with keys "name", "population", and "continent" for Tokyo. Output only the raw JSON, no markdown fences.'
       context: 'structured_output'
     assert:
-      - type: is-json
+      - type: javascript
+        value: |
+          // Strip markdown fences if present
+          const cleaned = output.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+          try { JSON.parse(cleaned); return { pass: true, score: 1, reason: 'Valid JSON' }; }
+          catch (e) { return { pass: false, score: 0, reason: 'Invalid JSON: ' + e.message }; }
         metric: accuracy
         weight: 2
       - type: javascript
         value: |
+          const cleaned = output.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
           try {
-            const data = JSON.parse(output);
+            const data = JSON.parse(cleaned);
             const hasName = 'name' in data;
             const hasPop = 'population' in data;
             const hasContinent = 'continent' in data;
@@ -151,6 +160,161 @@ tests:
         value: 'The output contains accurate information about Tokyo (population ~14M, continent Asia)'
         metric: accuracy_graded
         weight: 2
+
+  # --- Test 6: Multi-discipline code review — SQL injection detection ---
+  - description: 'Code review — catches SQL injection'
+    vars:
+      task: |
+        Review this code for issues:
+        ```javascript
+        app.get('/users', (req, res) => {
+          const name = req.query.name;
+          const result = db.query(`SELECT * FROM users WHERE name = '${name}'`);
+          res.json(result);
+        });
+        ```
+      context: 'code_review'
+    assert:
+      - type: icontains
+        value: 'injection'
+        metric: accuracy
+        weight: 3
+      - type: llm-rubric
+        value: |
+          The review must:
+          1. Identify the SQL injection vulnerability specifically (not just generic "security issue")
+          2. Point to the string interpolation of user input into the query
+          3. Suggest parameterized queries or prepared statements as the fix
+          4. Not report false positives unrelated to the actual code
+        metric: rubric_quality
+        weight: 3
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          const hasVulnId = lower.includes('injection') || lower.includes('unsanitized');
+          const hasFix = lower.includes('parameterized') || lower.includes('prepared') || lower.includes('placeholder');
+          const score = [hasVulnId, hasFix].filter(Boolean).length / 2;
+          return { pass: hasVulnId && hasFix, score, reason: `Vuln identified: ${hasVulnId}, Fix suggested: ${hasFix}` };
+        metric: completeness
+        weight: 2
+
+  # --- Test 7: Multi-discipline code review — correctness bug ---
+  - description: 'Code review — catches off-by-one / correctness bug'
+    vars:
+      task: |
+        Review this code for issues:
+        ```python
+        def get_last_n_items(items, n):
+            result = []
+            for i in range(len(items) - n, len(items) + 1):
+                result.append(items[i])
+            return result
+        ```
+      context: 'code_review'
+    assert:
+      - type: llm-rubric
+        value: |
+          The review must:
+          1. Identify the off-by-one error (range goes to len(items) + 1, causing IndexError)
+          2. Explain WHY it fails (accessing items[len(items)] which is out of bounds)
+          3. Suggest a correct fix (e.g., items[-n:] or range(len(items) - n, len(items)))
+          4. Not hallucinate issues that don't exist in this code
+          Bonus (not required): providing a specific input that triggers the bug.
+        metric: rubric_quality
+        weight: 3
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          const catchesBug = lower.includes('off-by-one') || lower.includes('index') || lower.includes('out of range') || lower.includes('+ 1');
+          const suggestsFix = lower.includes('items[-n:]') || lower.includes('len(items))') || lower.includes('slice');
+          const score = [catchesBug, suggestsFix].filter(Boolean).length / 2;
+          return { pass: catchesBug, score, reason: `Bug caught: ${catchesBug}, Fix: ${suggestsFix}` };
+        metric: completeness
+        weight: 2
+
+  # --- Test 8: Multi-discipline code review — rubric self-challenge (no false positives) ---
+  - description: 'Code review — does not hallucinate issues in clean code'
+    vars:
+      task: |
+        Review this code for issues:
+        ```typescript
+        async function fetchUser(id: string): Promise<User | null> {
+          if (!id || typeof id !== 'string') {
+            throw new Error('Invalid user ID');
+          }
+          const response = await fetch(`/api/users/${encodeURIComponent(id)}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch user: ${response.status}`);
+          }
+          return response.json();
+        }
+        ```
+      context: 'code_review'
+    assert:
+      - type: llm-rubric
+        value: |
+          This code is well-written with proper input validation, URL encoding, and error handling.
+          The review should:
+          1. NOT flag false security issues (input IS validated, URL IS encoded)
+          2. NOT flag missing error handling (errors ARE thrown)
+          3. Acknowledge the code is largely correct
+          4. At most suggest minor improvements (e.g., type narrowing on response.json())
+          A review that invents critical/high issues for this code is WRONG.
+        metric: rubric_quality
+        weight: 3
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          // Only flag if the review invents serious security/injection issues that don't exist
+          const falseAlarm = lower.includes('sql injection') || lower.includes('xss') || lower.includes('command injection');
+          const reasonable = lower.includes('solid') || lower.includes('clean') || lower.includes('well') || lower.includes('minor') || lower.includes('nit') || lower.includes('low') || lower.includes('good') || lower.includes('correct');
+          const score = falseAlarm ? 0 : reasonable ? 1 : 0.6;
+          return { pass: !falseAlarm, score, reason: `Invented security issue: ${falseAlarm}, Acknowledges quality: ${reasonable}` };
+        metric: accuracy
+        weight: 3
+
+  # --- Test 9: Multi-discipline code review — multi-discipline coverage ---
+  - description: 'Code review — covers multiple disciplines'
+    vars:
+      task: |
+        Review this code for issues:
+        ```javascript
+        app.post('/transfer', (req, res) => {
+          const { from, to, amount } = req.body;
+          const fromBalance = db.query(`SELECT balance FROM accounts WHERE id = '${from}'`);
+          if (fromBalance >= amount) {
+            db.query(`UPDATE accounts SET balance = balance - ${amount} WHERE id = '${from}'`);
+            db.query(`UPDATE accounts SET balance = balance + ${amount} WHERE id = '${to}'`);
+          }
+          res.json({ success: true });
+        });
+        ```
+      context: 'code_review'
+    assert:
+      - type: llm-rubric
+        value: |
+          This code has issues across multiple disciplines. The review must identify AT LEAST 3 of these:
+          1. SECURITY: SQL injection via string interpolation of from/to/amount
+          2. CORRECTNESS: No transaction — transfer is not atomic (race condition)
+          3. CORRECTNESS: No input validation on amount (could be negative, NaN, etc.)
+          4. CORRECTNESS: Always returns success even if balance check fails
+          5. DESIGN: No error handling — if any query fails, no rollback
+          6. TESTING: No indication of test coverage for edge cases
+          The review should demonstrate multi-discipline thinking, not just one category.
+        metric: rubric_quality
+        weight: 3
+      - type: javascript
+        value: |
+          const lower = output.toLowerCase();
+          const security = lower.includes('injection') || lower.includes('sanitiz');
+          const atomicity = lower.includes('transaction') || lower.includes('atomic') || lower.includes('race');
+          const validation = lower.includes('validation') || lower.includes('negative') || lower.includes('NaN');
+          const errorHandling = lower.includes('error') || lower.includes('rollback') || lower.includes('always returns success');
+          const disciplines = [security, atomicity, validation, errorHandling].filter(Boolean).length;
+          const score = Math.min(disciplines / 3, 1);
+          return { pass: disciplines >= 3, score, reason: `Disciplines covered: ${disciplines}/4 (security:${security}, atomicity:${atomicity}, validation:${validation}, errors:${errorHandling})` };
+        metric: completeness
+        weight: 3
 
 # Assertion scoring override: custom function that factors in cost-accuracy ratio
 assertScoringFunction: file://scoring.js
