@@ -12,4 +12,4 @@ if [[ "$PROMPT" =~ ^\[.*\]$ ]]; then
 fi
 
 # For g-eval and other JSON-requiring assertions, ensure JSON output
-claude -p --output-format text --max-turns 1 --system "Output only valid minified JSON, no prose, no code fences" "$PROMPT"
+claude -p --output-format text --max-turns 1 --append-system-prompt "Output only valid minified JSON, no prose, no code fences" "$PROMPT"

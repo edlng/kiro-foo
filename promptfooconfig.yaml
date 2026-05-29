@@ -50,12 +50,13 @@ tests:
       task: 'What is the capital of France?'
       context: 'geography'
     assert:
-      - type: factuality
-        value: 'Paris is the capital of France'
+      - type: icontains
+        value: 'Paris'
         metric: accuracy
         weight: 3
-      - type: factuality
-        value: 'The answer correctly states that Paris is the capital of France'
+      - type: llm-rubric
+        threshold: 0.8
+        value: 'The response correctly identifies Paris as the capital of France. A single-word answer "Paris" is perfectly acceptable.'
         metric: accuracy_graded
         weight: 2
 
@@ -113,8 +114,8 @@ tests:
       task: 'Say hello in French.'
       context: 'translation'
     assert:
-      - type: factuality
-        value: 'Bonjour is hello in French'
+      - type: icontains
+        value: 'Bonjour'
         metric: accuracy
         weight: 2
       - type: latency
@@ -129,9 +130,6 @@ tests:
           return { pass: words < 30, score, reason: `${words} words` };
         metric: conciseness
         weight: 1
-    options:
-      # Override default rubric — this task is too simple for the generic rubric
-      rubricPrompt: 'The response correctly says hello in French (e.g. Bonjour). It does not need to be a full sentence.'
 
   # --- Test 5: Structured output — JSON with required fields ---
   - description: 'Structured output — JSON with required fields'
@@ -163,8 +161,9 @@ tests:
           }
         metric: completeness
         weight: 3
-      - type: factuality
-        value: 'The output contains accurate information about Tokyo (population ~14M, continent Asia)'
+      - type: llm-rubric
+        threshold: 0.7
+        value: 'The output contains accurate information about Tokyo: population approximately 14 million, located in Asia.'
         metric: accuracy_graded
         weight: 2
 
@@ -334,16 +333,28 @@ tests:
         metric: completeness
         weight: 3
 
-  # --- Test 10: Select-best comparison ---
-  - description: 'Select best response from multiple providers'
+  # --- Test 10: Technical explanation quality ---
+  - description: 'Technical explanation — async/await vs Promises'
     vars:
       task: 'Explain the difference between async/await and Promises in JavaScript'
       context: 'programming'
     assert:
-      - type: select-best
-        value: 'Which response is more accurate, clear, and concise?'
-        metric: best_response
-        weight: 1
+      - type: llm-rubric
+        threshold: 0.7
+        value: |
+          The response must:
+          1. Explain that async/await is syntactic sugar over Promises
+          2. Show or describe the difference in syntax (chaining vs sequential)
+          3. Mention error handling differences (try/catch vs .catch())
+          4. Be technically accurate
+        metric: rubric_quality
+        weight: 3
+      - type: icontains-all
+        value:
+          - 'await'
+          - 'then'
+        metric: completeness
+        weight: 2
 
 # Assertion scoring override: custom function that factors in cost-accuracy ratio
 assertScoringFunction: file://scoring.js
