@@ -10,5 +10,6 @@
     }
   },
   "model": "claude-sonnet-4-6",
-  "welcomeMessage": "Validator ready. What should I verify?"
+  "welcomeMessage": "Validator ready. What should I verify?",
+  "permissionMode": "dontAsk"
 }
